@@ -1,0 +1,43 @@
+{
+  "os":  "macOS-26.3.1-arm64-arm-64bit",
+  "python":  "CPython 3.12.13",
+  "startedAt":  "2026-04-04T12:17:33.181520Z",
+  "args":  [
+    "--output-dir",
+    "outputs/bert-base_test",
+    "--max-train-samples",
+    "2000",
+    "--max-validation-samples",
+    "500",
+    "--max-test-samples",
+    "500",
+    "--per-device-train-batch-size",
+    "4",
+    "--per-device-eval-batch-size",
+    "8",
+    "--num-train-epochs",
+    "1",
+    "--model-choice",
+    "bert-base"
+  ],
+  "program":  "/Users/gauthierbassereau/Documents/git/NLP-AI-detection/scripts/train_modernbert.py",
+  "codePath":  "scripts/train_modernbert.py",
+  "codePathLocal":  "scripts/train_modernbert.py",
+  "email":  "gauthier.bassereau@gmail.com",
+  "root":  "/Users/gauthierbassereau/Documents/git/NLP-AI-detection",
+  "host":  "MacBook-Pro-91.local",
+  "executable":  "/opt/anaconda3/envs/lerobot/bin/python3",
+  "cpu_count":  11,
+  "cpu_count_logical":  11,
+  "disk":  {
+    "/":  {
+      "total":  "494353338368",
+      "used":  "378820714496"
+    }
+  },
+  "memory":  {
+    "total":  "19327352832"
+  },
+  "apple":  {},
+  "writerId":  "8r92utic24wop34wedgnl968dksummj1"
+}
