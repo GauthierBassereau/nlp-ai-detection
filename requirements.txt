@@ -1,0 +1,8 @@
+accelerate>=0.30.0
+datasets>=2.19.0
+evaluate>=0.4.1
+numpy>=1.26.0
+scikit-learn>=1.4.0
+safetensors>=0.4.3
+transformers>=4.48.0
+wandb>=0.17.0
