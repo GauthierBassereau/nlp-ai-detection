@@ -81,6 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Column name for AI-written answers in raw HC3-style data.",
     )
     dataset_group.add_argument(
+        "--ai-answers-columns",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional list of AI-written answer columns. When set, all listed columns "
+            "are flattened as AI examples and --ai-answers-column is ignored."
+        ),
+    )
+    dataset_group.add_argument(
         "--source-column",
         default="source",
         help="Optional source/domain column name in raw HC3-style data.",
@@ -270,6 +279,24 @@ def build_text(question: str, answer: str, text_mode: str) -> str:
     return f"Question: {question}\n\nAnswer: {answer}"
 
 
+def resolve_ai_answer_columns(args: argparse.Namespace) -> list[str]:
+    if not args.ai_answers_columns:
+        return [args.ai_answers_column]
+
+    resolved_columns: list[str] = []
+    seen: set[str] = set()
+    for raw_value in args.ai_answers_columns:
+        for column_name in raw_value.split(","):
+            normalized = column_name.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                resolved_columns.append(normalized)
+
+    if not resolved_columns:
+        raise ValueError("No AI answer columns were provided.")
+    return resolved_columns
+
+
 def normalize_dataset_object(dataset_obj: Dataset | DatasetDict) -> DatasetDict:
     if isinstance(dataset_obj, DatasetDict):
         return dataset_obj
@@ -298,10 +325,11 @@ def flatten_hc3_split(split_dataset: Dataset, args: argparse.Namespace, split_na
     if {"text", "label"}.issubset(split_dataset.column_names):
         return normalize_flat_split(split_dataset)
 
+    ai_answer_columns = resolve_ai_answer_columns(args)
     required_columns = {
         args.question_column,
         args.human_answers_column,
-        args.ai_answers_column,
+        *ai_answer_columns,
     }
     missing_columns = required_columns.difference(split_dataset.column_names)
     if missing_columns:
@@ -321,6 +349,7 @@ def flatten_hc3_split(split_dataset: Dataset, args: argparse.Namespace, split_na
             "text": [],
             "source": [],
             "author_type": [],
+            "answer_source_column": [],
             "label": [],
         }
 
@@ -329,7 +358,6 @@ def flatten_hc3_split(split_dataset: Dataset, args: argparse.Namespace, split_na
             source = safe_text(sources[idx_in_batch]) if sources[idx_in_batch] is not None else None
 
             human_answers = ensure_list_of_text(batch[args.human_answers_column][idx_in_batch])
-            ai_answers = ensure_list_of_text(batch[args.ai_answers_column][idx_in_batch])
 
             for answer_idx, answer in enumerate(human_answers):
                 flattened["example_id"].append(f"{split_name}-{row_index}-human-{answer_idx}")
@@ -338,16 +366,22 @@ def flatten_hc3_split(split_dataset: Dataset, args: argparse.Namespace, split_na
                 flattened["text"].append(build_text(question, answer, args.text_mode))
                 flattened["source"].append(source)
                 flattened["author_type"].append("human")
+                flattened["answer_source_column"].append(args.human_answers_column)
                 flattened["label"].append(0)
 
-            for answer_idx, answer in enumerate(ai_answers):
-                flattened["example_id"].append(f"{split_name}-{row_index}-ai-{answer_idx}")
-                flattened["question"].append(question)
-                flattened["answer"].append(answer)
-                flattened["text"].append(build_text(question, answer, args.text_mode))
-                flattened["source"].append(source)
-                flattened["author_type"].append("ai")
-                flattened["label"].append(1)
+            for ai_column in ai_answer_columns:
+                ai_answers = ensure_list_of_text(batch[ai_column][idx_in_batch])
+                for answer_idx, answer in enumerate(ai_answers):
+                    flattened["example_id"].append(
+                        f"{split_name}-{row_index}-{ai_column}-ai-{answer_idx}"
+                    )
+                    flattened["question"].append(question)
+                    flattened["answer"].append(answer)
+                    flattened["text"].append(build_text(question, answer, args.text_mode))
+                    flattened["source"].append(source)
+                    flattened["author_type"].append("ai")
+                    flattened["answer_source_column"].append(ai_column)
+                    flattened["label"].append(1)
 
         return flattened
 
@@ -382,6 +416,11 @@ def normalize_flat_split(split_dataset: Dataset) -> Dataset:
         normalized = normalized.map(
             lambda _: {"source": None},
             desc="Adding source column",
+        )
+    if "answer_source_column" not in normalized.column_names:
+        normalized = normalized.map(
+            lambda _: {"answer_source_column": None},
+            desc="Adding answer_source_column",
         )
 
     label_feature = normalized.features.get("label")
@@ -765,6 +804,7 @@ def save_prediction_records(
                 "example_id": example["example_id"],
                 "source": example["source"],
                 "author_type": example["author_type"],
+                "answer_source_column": example["answer_source_column"],
                 "question": example["question"],
                 "answer": example["answer"],
                 "text": example["text"],

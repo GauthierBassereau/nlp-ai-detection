@@ -4,5 +4,6 @@ evaluate>=0.4.1
 numpy>=1.26.0
 scikit-learn>=1.4.0
 safetensors>=0.4.3
+torch>=2.2.0
 transformers>=4.48.0
 wandb>=0.17.0
