@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import shutil
 from pathlib import Path
 from typing import Any
@@ -72,11 +73,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Dataset splits to augment. Defaults to every split in the dataset.",
     )
-    dataset_group.add_argument(
+    sampling_group = dataset_group.add_mutually_exclusive_group()
+    sampling_group.add_argument(
         "--max-samples-per-split",
         type=int,
         default=None,
-        help="Optional cap per split for quick experiments.",
+        help="Optional cap on the first N rows of each selected split for quick experiments.",
+    )
+    sampling_group.add_argument(
+        "--random-subset-size",
+        type=int,
+        default=None,
+        help=(
+            "Optional total number of rows to randomly sample across the selected "
+            "splits before augmentation. The sampled subset is what gets saved."
+        ),
     )
 
     output_group = parser.add_argument_group("output")
@@ -267,6 +278,63 @@ def resolve_split_names(dataset_dict: DatasetDict, requested_splits: list[str] |
             f"Unknown split(s): {missing_text}. Available splits: {available_text}"
         )
     return requested_splits
+
+
+def maybe_random_subset_dataset(
+    dataset_dict: DatasetDict,
+    *,
+    split_names: list[str],
+    sample_size: int | None,
+    seed: int,
+) -> tuple[DatasetDict, dict[str, Any]]:
+    ordered_split_names = [split_name for split_name in dataset_dict.keys() if split_name in split_names]
+    input_rows_per_split = {split_name: len(dataset_dict[split_name]) for split_name in ordered_split_names}
+    input_total_rows = sum(input_rows_per_split.values())
+    metadata = {
+        "requested_size": sample_size,
+        "seed": seed,
+        "input_total_rows": input_total_rows,
+        "input_rows_per_split": input_rows_per_split,
+        "output_total_rows": input_total_rows,
+        "output_rows_per_split": dict(input_rows_per_split),
+    }
+
+    if sample_size is None:
+        return dataset_dict, metadata
+    if sample_size <= 0:
+        raise ValueError("--random-subset-size must be > 0.")
+    if sample_size >= input_total_rows:
+        return dataset_dict, metadata
+
+    sampled_global_indices = sorted(random.Random(seed).sample(range(input_total_rows), sample_size))
+    sampled_splits: dict[str, Dataset] = {}
+    sampled_rows_per_split: dict[str, int] = {}
+    sample_cursor = 0
+    global_offset = 0
+
+    for split_name, split_dataset in dataset_dict.items():
+        if split_name not in input_rows_per_split:
+            sampled_splits[split_name] = split_dataset
+            continue
+
+        split_length = len(split_dataset)
+        selected_indices: list[int] = []
+        split_stop = global_offset + split_length
+
+        while (
+            sample_cursor < len(sampled_global_indices)
+            and sampled_global_indices[sample_cursor] < split_stop
+        ):
+            selected_indices.append(sampled_global_indices[sample_cursor] - global_offset)
+            sample_cursor += 1
+
+        sampled_rows_per_split[split_name] = len(selected_indices)
+        sampled_splits[split_name] = split_dataset.select(selected_indices)
+        global_offset = split_stop
+
+    metadata["output_total_rows"] = sample_size
+    metadata["output_rows_per_split"] = sampled_rows_per_split
+    return DatasetDict(sampled_splits), metadata
 
 
 def read_optional_text_argument(
@@ -726,6 +794,8 @@ def augment_dataset_dict(
     question_column: str = "question",
     source_column: str = "source",
     splits: list[str] | None = None,
+    seed: int = 42,
+    random_subset_size: int | None = None,
     max_samples_per_split: int | None = None,
     prompt_template: str | None = None,
     system_prompt_template: str | None = None,
@@ -741,6 +811,12 @@ def augment_dataset_dict(
     num_return_sequences: int = 1,
 ) -> DatasetDict:
     split_names = resolve_split_names(dataset_dict, splits)
+    dataset_dict, _ = maybe_random_subset_dataset(
+        dataset_dict,
+        split_names=split_names,
+        sample_size=random_subset_size,
+        seed=seed,
+    )
     runtime_args = argparse.Namespace(
         question_column=question_column,
         source_column=source_column,
@@ -794,6 +870,7 @@ def save_run_config(
     prompt_template: str | None,
     system_prompt_template: str | None,
     use_chat_template: bool,
+    subset_metadata: dict[str, Any],
 ) -> Path:
     config_path = output_dir / "generation_config.json"
     payload = {
@@ -811,6 +888,7 @@ def save_run_config(
         "torch_dtype": dtype_to_name(torch_dtype),
         "max_input_length": args.max_input_length,
         "batch_size": args.batch_size,
+        "max_samples_per_split": args.max_samples_per_split,
         "max_new_tokens": args.max_new_tokens,
         "do_sample": args.do_sample,
         "temperature": args.temperature,
@@ -821,6 +899,11 @@ def save_run_config(
         "use_chat_template": use_chat_template,
         "prompt_template": prompt_template,
         "system_prompt": system_prompt_template,
+        "random_subset_size": args.random_subset_size,
+        "subset_input_total_rows": subset_metadata["input_total_rows"],
+        "subset_output_total_rows": subset_metadata["output_total_rows"],
+        "subset_input_rows_per_split": subset_metadata["input_rows_per_split"],
+        "subset_output_rows_per_split": subset_metadata["output_rows_per_split"],
     }
     with config_path.open("w", encoding="utf-8") as file_handle:
         json.dump(payload, file_handle, indent=2, ensure_ascii=False)
@@ -848,6 +931,23 @@ def main() -> None:
     device = torch.device(backend)
     source_dataset = load_source_dataset(args)
     splits_to_augment = resolve_split_names(source_dataset, args.splits)
+    source_dataset, subset_metadata = maybe_random_subset_dataset(
+        source_dataset,
+        split_names=splits_to_augment,
+        sample_size=args.random_subset_size,
+        seed=args.seed,
+    )
+
+    if args.random_subset_size is not None:
+        print(
+            "Random subset applied: "
+            f"{subset_metadata['output_total_rows']:,}/{subset_metadata['input_total_rows']:,} "
+            "rows across selected splits"
+        )
+        for split_name in splits_to_augment:
+            input_rows = subset_metadata["input_rows_per_split"][split_name]
+            output_rows = subset_metadata["output_rows_per_split"].get(split_name, input_rows)
+            print(f"  - {split_name}: {output_rows:,}/{input_rows:,} rows")
 
     model, tokenizer, is_encoder_decoder, torch_dtype = load_generation_components(args, backend)
     use_chat_template = should_use_chat_template(tokenizer, args.disable_chat_template)
@@ -884,6 +984,7 @@ def main() -> None:
         prompt_template=prompt_template,
         system_prompt_template=system_prompt_template,
         use_chat_template=use_chat_template,
+        subset_metadata=subset_metadata,
     )
 
     print(f"Saved augmented dataset to: {output_dir}")

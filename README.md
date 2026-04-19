@@ -13,6 +13,7 @@ The augmentation script adds a new answer column to the raw HC3 dataset so you c
 - swap the Hugging Face generation model with `--model-name`,
 - run with or without a conditioning prompt,
 - save the rendered prompt in a debug column if you want to inspect what was sent,
+- randomly freeze a reusable subset with `--random-subset-size`,
 - keep generating new columns for different models or prompt variants.
 
 Example without extra prompting:
@@ -40,6 +41,31 @@ python scripts/augment_hc3.py \
     --max-new-tokens 192
 ```
 
+Example that first freezes a reusable random subset of 5,000 rows, augments it, and saves only that subset:
+
+```bash
+python scripts/augment_hc3.py \
+    --model-name meta-llama/Llama-3.1-8B-Instruct \
+    --column-name llama31_answers \
+    --random-subset-size 5000 \
+    --output-dir data/hc3_llama31_subset5k \
+    --batch-size 2 \
+    --max-new-tokens 192
+```
+
+Later, you can add another generated column on top of that exact same saved subset by reusing `--dataset-dir` and not passing `--random-subset-size` again:
+
+```bash
+python scripts/augment_hc3.py \
+    --dataset-dir data/hc3_llama31_subset5k \
+    --model-name meta-llama/Llama-3.1-8B-Instruct \
+    --column-name llama31_conditioned_answers \
+    --prompt-template "Answer the following question like a real student. Question: {question}" \
+    --output-dir data/hc3_llama31_subset5k_conditioned \
+    --batch-size 2 \
+    --max-new-tokens 192
+```
+
 Prompt templates support these fields:
 
 - `{question}`
@@ -55,12 +81,12 @@ Each generated column is stored as a list of answers per HC3 row, so it stays co
 The training script:
 
 - uses Hugging Face `datasets` for loading and preprocessing,
+- samples one answer per source column per row by default, so each row contributes one human example and one example from each selected AI column,
 - uses `Trainer`/`TrainingArguments` for fine-tuning,
 - auto-detects `cuda`, `mps`, or `cpu`,
 - enables CUDA mixed precision automatically when available,
 - logs to W&B by default,
-- writes train/validation/test metrics,
-- saves test-set predictions and misclassifications as JSONL.
+- writes train/validation metrics.
 
 Example:
 
@@ -68,10 +94,9 @@ Example:
 python scripts/train_modernbert.py \
     --dataset-dir data/hc3_llama31_conditioned \
     --ai-answers-columns chatgpt_answers llama31_answers llama31_conditioned_answers \
-    --output-dir outputs/roberta-base_test \
+    --output-dir outputs/roberta-base_validation \
     --max-train-samples 2000 \
     --max-validation-samples 500 \
-    --max-test-samples 500 \
     --per-device-train-batch-size 4 \
     --per-device-eval-batch-size 8 \
     --num-train-epochs 1 \
@@ -86,6 +111,4 @@ Training writes artifacts under the chosen `--output-dir`, including:
 - tokenizer files,
 - `train_results.json`,
 - `all_results.json`,
-- `test_results.json`,
-- `test_predictions.jsonl`,
-- `test_misclassified.jsonl`.
+- `validation_results.json`.
