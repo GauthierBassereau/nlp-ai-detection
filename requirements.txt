@@ -1,6 +1,7 @@
 accelerate>=0.30.0
 datasets>=2.19.0
 evaluate>=0.4.1
+matplotlib>=3.8.0
 numpy>=1.26.0
 scikit-learn>=1.4.0
 safetensors>=0.4.3

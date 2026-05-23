@@ -1,0 +1,44 @@
+{
+  "prompts": {
+    "basic": {
+      "description": "Direct concise answer with a row-specific length target.",
+      "system": "Write only the answer text. Do not use headings, bullets, markdown, or meta-commentary.",
+      "user": "Answer the question in a natural way, like a person writing a short dataset answer. Keep it between {target_min_words} and {target_max_words} words. Use plain wording, 1 to 4 sentences, and stop after the answer.\n\nQuestion: {question}\n\nAnswer:",
+      "generation": {
+        "max_new_tokens": 120,
+        "temperature": 0.75,
+        "top_p": 0.9
+      }
+    },
+    "human_imitator": {
+      "description": "Asks for a short human-like answer without polished assistant style.",
+      "system": "Write only the answer text. Avoid assistant phrases, disclaimers, lists, and overly polished explanations.",
+      "user": "Answer as a real person might answer this question in a dataset. Make it hard to tell apart from a human answer. Keep it between {target_min_words} and {target_max_words} words. It can be a little informal or imperfect, but it still needs to answer the question. If it feels natural, include one small human-like imperfection such as a typo, missing comma, minor spelling mistake, or slightly awkward phrasing. Do not overdo it and do not make the answer unreadable.\n\nQuestion: {question}\n\nAnswer:",
+      "generation": {
+        "max_new_tokens": 120,
+        "temperature": 0.85,
+        "top_p": 0.92
+      }
+    },
+    "random_human_example": {
+      "description": "Uses a random human answer as a style and length example.",
+      "system": "Write only the answer text. Do not mention the example or explain what you are doing.",
+      "user": "Here is a human-written answer from this dataset. Use it only as a rough guide for tone and length:\n\n{random_human_answer}\n\nNow answer the new question below. Do not copy the example. Keep the answer between {target_min_words} and {target_max_words} words, with a similar level of detail and naturalness. A real answer may have a small typo, missing punctuation, repeated word, or slightly uneven phrasing; include that only if it fits naturally.\n\nQuestion: {question}\n\nAnswer:",
+      "generation": {
+        "max_new_tokens": 120,
+        "temperature": 0.85,
+        "top_p": 0.92
+      }
+    },
+    "actual_human_reference": {
+      "description": "Uses the same-question human answer as a reference, while forbidding copying.",
+      "system": "Write only the answer text. Do not mention the reference answer or explain your choices.",
+      "user": "A human gave this answer to the same question:\n\n{selected_human_answer}\n\nWrite your own answer to the question. Do not copy phrases from the human answer. Match its rough length and level of detail, staying between {target_min_words} and {target_max_words} words. It should feel like a quick human-written response, so a small typo, spelling slip, missing punctuation mark, or slightly clumsy sentence is okay when natural. Do not add many mistakes.\n\nQuestion: {question}\n\nAnswer:",
+      "generation": {
+        "max_new_tokens": 120,
+        "temperature": 0.8,
+        "top_p": 0.9
+      }
+    }
+  }
+}

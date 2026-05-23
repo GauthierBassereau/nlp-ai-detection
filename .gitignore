@@ -4,3 +4,10 @@ __pycache__/
 *.py[cod]
 data/
 outputs/
+logs/
+
+.ipynb_checkpoints/
+wandb/
+*.ipynb
+*.pbix
+*.log
